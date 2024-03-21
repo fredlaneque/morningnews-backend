@@ -1,0 +1,18 @@
+# Use the official Nginx image with Alpine as the base image
+FROM nginx:alpine
+
+# Install necessary packages
+RUN apk --no-cache add nano
+
+# Define the argument for the environment
+ARG ENVIRONMENT
+
+# Copy Nginx HTTP configuration
+COPY ./build/conf/${ENVIRONMENT}-default.conf /etc/nginx/conf.d/default.conf
+COPY ./build/conf/${ENVIRONMENT}-default.conf /home/admin/default.conf
+
+# Expose the ports on which the app will be accessible
+EXPOSE 80 443
+
+# Set the command to start nginx
+CMD [ "nginx", "-g", "daemon off;" ]

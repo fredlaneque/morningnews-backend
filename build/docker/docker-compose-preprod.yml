@@ -1,0 +1,16 @@
+version: '3'
+services:
+  node:
+    image: registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-node:latest
+    restart: unless-stopped
+    network_mode: "host"
+
+  nginx:
+    image: registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-preprod-nginx:latest
+    volumes:
+      - /home/admin/letsencrypt:/etc/letsencrypt
+      - /home/admin/nginx/conf.d:/etc/nginx/conf.d
+    restart: unless-stopped
+    depends_on:
+      - node
+    network_mode: "host"

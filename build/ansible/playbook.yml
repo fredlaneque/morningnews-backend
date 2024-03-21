@@ -1,0 +1,81 @@
+---
+- name: Configure EC2 instance with containers hosting nginx and node
+  hosts: all
+  become: true
+
+  tasks:
+    - name: Set Hostname
+      ansible.builtin.hostname:
+        name: "{{ inventory_hostname }}"
+    
+    - name: Set timezone
+      ansible.builtin.timezone:
+        name: Europe/Paris
+
+    - name: Install dependencies
+      ansible.builtin.apt:
+        name:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - gnupg
+        state: present
+        update_cache: yes
+
+    - name: Ajouter la clé GPG officielle de Docker
+      ansible.builtin.apt_key:
+        url: https://download.docker.com/linux/debian/gpg
+        state: present
+
+    - name: Ajouter le dépôt officiel de Docker
+      ansible.builtin.apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/debian {{ ansible_lsb.codename }} stable
+        state: present
+
+    - name: Installer Docker CE
+      ansible.builtin.apt:
+        name: docker-ce
+        state: present
+
+    - name: Ajouter l'utilisateur au groupe Docker
+      ansible.builtin.user:
+        name: "admin"
+        group: docker
+        append: yes
+
+    - name: Installer Docker Compose
+      ansible.builtin.apt:
+        name: docker-compose
+        state: present
+
+    - name: Copie du dossier de configuration Nginx
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-backend/build/conf/.ssl/{{ ENVIRONMENT }}/nginx
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Copie des certificats pour https
+      ansible.builtin.copy:
+        src: /builds/lacapsule-batch6/morningnews-backend/build/conf/.ssl/{{ ENVIRONMENT }}/letsencrypt
+        dest: /home/admin
+        remote_src: no
+        directory_mode: yes
+
+    - name: Read/Write Rights on config files
+      command: chmod 0755 -R /home/admin/nginx /home/admin/letsencrypt
+
+    - name: Transfer docker-compose.yml
+      copy:
+        src: /builds/lacapsule-batch6/morningnews-backend/build/docker/docker-compose-{{ ENVIRONMENT }}.yml
+        dest: /home/admin/docker-compose.yml
+
+    - name: Connect to GitLab to get docker images stored in registry
+      command: docker login registry.gitlab.com -u {{ ANSIBLE_GITLAB_USERNAME }} -p {{ ANSIBLE_GITLAB_ACCESS_TOKEN }}
+      environment:
+        GITLAB_ACCESS_TOKEN: "{{ ANSIBLE_GITLAB_ACCESS_TOKEN }}"
+        GITLAB_USERNAME: "{{ ANSIBLE_GITLAB_USERNAME }}"
+
+    - name: Run Nginx and Node container
+      command: docker-compose up -d

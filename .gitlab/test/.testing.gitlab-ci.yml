@@ -1,0 +1,64 @@
+image: node:alpine
+
+# run jest tests when pushes on features branch only
+jest:
+  stage: test
+  script:
+    - npm install
+    - npm test
+  except:
+    - main
+    - prod
+
+# run eslint on project directory when pushed on features branch only
+lint:
+  stage: test
+  script:
+    - npm install
+    - npm run lint
+  except:
+    - main
+    - prod
+
+sonarqube-check:
+  stage: sonarqube-check
+  image: 
+    name: sonarsource/sonar-scanner-cli:5.0
+    entrypoint: [""]
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
+    GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script: 
+    - sonar-scanner
+  allow_failure: true
+  except:
+    - main
+    - prod
+
+sonarqube-vulnerability-report:
+  image: curlimages/curl:latest
+  stage: sonarqube-vulnerability-report
+  script:
+    - 'curl -u "${SONAR_TOKEN}:" "${SONAR_HOST_URL}/api/issues/gitlab_sast_export?projectKey=lacapsule-batch6_morningnews-backend_bd7addc3-176b-40a0-96a1-6cdc6ad32828&branch=${CI_COMMIT_BRANCH}&pullRequest=${CI_MERGE_REQUEST_IID}" -o gl-sast-sonar-report.json'
+  allow_failure: true
+  artifacts:
+    expire_in: 1 day
+    reports:
+      sast: gl-sast-sonar-report.json
+  except:
+    - main
+    - prod
+
+ddos_testing:
+  stage: test_load
+  image: ddosify/ddosify
+  script:
+    - ddosify -t $URL_BACKEND_PROD
+  variables:
+    URL_BACKEND_PROD: https://prod.isinetwork.fr
+  only:
+    - prod

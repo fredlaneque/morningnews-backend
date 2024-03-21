@@ -1,0 +1,68 @@
+terraform_prod:
+  image: devopsinfra/docker-terragrunt:aws-latest
+  stage: build
+  services:
+    - docker:dind
+  before_script:
+    - export ENVIRONMENT=prod
+    # Docker login to access gitlab registry
+    - echo ${GITLAB_ACCESS_TOKEN} | docker login registry.gitlab.com -u ${TF_HTTP_USERNAME} --password-stdin
+    - chmod 0600 ${ROOT}/build/conf/.ssh/id_rsa
+    - chmod 0600 ${ROOT}/build/conf/.ssh/id_rsa.pub
+  script:
+    # Build Docker for Nginx and push it to GitLab registry
+    - docker build --build-arg ENVIRONMENT=${ENVIRONMENT} --file ./build/docker/Dockerfile.nginx -t registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-${ENVIRONMENT}-nginx .
+    - docker push registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-${ENVIRONMENT}-nginx
+    # Build Docker for Node and push it to GitLab registry with CONNECTION_STRING as argument
+    - docker build --build-arg GITLAB_CONNECTION_STRING=${CONNECTION_STRING_PROD} --file ./build/docker/Dockerfile.node -t registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-node .
+    - docker push registry.gitlab.com/lacapsule-batch6/morningnews-backend/mn-backend-node
+    # Init terraform folder with state to be stored on GitLab
+    - terraform -chdir=./build/terraform/${ENVIRONMENT} init -input=false
+    # Deploy EC2 instance on AWS
+    - terraform -chdir=./build/terraform/${ENVIRONMENT} apply -auto-approve
+  only:
+    - prod
+
+ansible_deploy_prod:
+  image: alpinelinux/ansible:latest
+  stage: deploy
+  before_script:
+    - export ENVIRONMENT=prod
+    - cp ./build/conf/.ssh/id_rsa ./build/ansible/id_rsa
+    - cp ./build/conf/.ssh/id_rsa ./build/ansible/id_rsa.pub
+    - chmod 0600 ${ROOT}/build/ansible/id_rsa
+    - chmod 0644 ${ROOT}/build/ansible/id_rsa.pub
+  script:
+    - cd /builds/lacapsule-batch6/morningnews-backend/build/ansible
+    # Pull and configure containers on EC2 instance
+    - ansible-playbook -v -i ./inventory-${ENVIRONMENT}.ini ./playbook.yml --private-key ./id_rsa -e "ANSIBLE_GITLAB_USERNAME=${GITLAB_USERNAME} ANSIBLE_GITLAB_ACCESS_TOKEN=${GITLAB_ACCESS_TOKEN} ENVIRONMENT=${ENVIRONMENT}"
+  only:
+    - prod
+
+website_verify_prod:
+  image: curlimages/curl:latest
+  stage: verify
+  before_script:
+    - export ENVIRONMENT=prod
+  script:
+    - curl --connect-timeout 5 http://${ENVIRONMENT}.isinetwork.fr || true
+    - curl --connect-timeout 5 https://${ENVIRONMENT}.isinetwork.fr || true
+  only:
+    - prod
+
+# Destroy EC2 instance
+terraform_destroy_prod:
+  image: devopsinfra/docker-terragrunt:aws-latest
+  stage: .post
+  services:
+    - docker:dind
+  before_script:
+    - export ENVIRONMENT=prod
+    - echo ${GITLAB_ACCESS_TOKEN} | docker login registry.gitlab.com -u ${TF_HTTP_USERNAME} --password-stdin
+  script:
+    # Init terraform folder with state to be stored on GitLab
+    - terraform -chdir=./build/terraform/${ENVIRONMENT} init -input=false
+    # Destroy existing EC2 instance
+    - terraform -chdir=./build/terraform/${ENVIRONMENT} destroy -auto-approve
+  only:
+    - prod

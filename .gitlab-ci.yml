@@ -1,0 +1,41 @@
+# All stages must be registered here
+stages:
+  # TESTS (executed at push and merdge to main)
+  # .pre to import key pair
+  - test
+  - sonarqube-check
+  - sonarqube-vulnerability-report
+  # INFRA (executed at merge to main)
+  - build
+  - deploy
+  - verify
+  - test_load
+  # .post to destroy EC2 instance
+
+# Split into multiple file : infra, testing CI, and deploy for CD
+include:
+  - local: '/.gitlab/build/.infra.gitlab-ci.yml'
+  - local: '/.gitlab/deploy/.deploy.gitlab-ci.yml'
+  - local: '/.gitlab/test/.testing.gitlab-ci.yml'
+
+# Decrypt BASE64 encoded files and make them available to download in artifact for one hour.
+decrypt_base64:
+  image: bash
+  stage: .pre
+  script:
+    - chmod +x ${ROOT}/build/conf/decode64.sh
+    - ${ROOT}/build/conf/decode64.sh
+  artifacts:
+    paths:
+      - ${ROOT}/build/conf/.ssh/id_rsa
+      - ${ROOT}/build/conf/.ssh/id_rsa.pub
+      - ${ROOT}/build/conf/.ssl/preprod/letsencrypt/live/preprod.isinetwork.fr/fullchain.pem
+      - ${ROOT}/build/conf/.ssl/preprod/letsencrypt/live/preprod.isinetwork.fr/privkey.pem
+      - ${ROOT}/build/conf/.ssl/preprod/letsencrypt/ssl-dhparams.pem
+      - ${ROOT}/build/conf/.ssl/prod/letsencrypt/live/prod.isinetwork.fr/fullchain.pem
+      - ${ROOT}/build/conf/.ssl/prod/letsencrypt/live/prod.isinetwork.fr/privkey.pem
+      - ${ROOT}/build/conf/.ssl/prod/letsencrypt/ssl-dhparams.pem
+    expire_in: 1 hour
+  only:
+    - main
+    - prod
